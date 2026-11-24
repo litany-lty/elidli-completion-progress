@@ -68,6 +68,23 @@ def main() -> int:
           est.norm_model("orchestrator-carbon") == "gemini" and est.norm_model("Gemini 4 Carbon (High)") == "gemini"
           and est.norm_model("orchestrator/high") == "unknown" and est.norm_model("coordinator") == "unknown"
           and est.norm_model("subagent-flash") == "unknown")
+    # 任务级经验区间：开工时按历史任务残差放宽，随剩余工作占比收窄，不足 30 个任务不启用
+    rng = random.Random(7)
+    hist = [dict(status="delivered", pred_sec=600.0, actual_sec=600.0 * math.exp(rng.gauss(0, 1.0)), completed_at=float(i))
+            for i in range(60)]
+    tw = est.calib_task_width(hist)
+    check("任务级宽度：样本足够时给出 P20<0<P80，不足 30 个返回 None",
+          tw is not None and tw[0] < -0.4 and tw[1] > 0.4 and est.calib_task_width(hist[:20]) is None, str(tw))
+    mk = lambda status: dict(id="s1", status=status, ln=math.log(300), sd_mc=0.2, dep=[], q=1, pred_sec=300.0, started_at=None)
+    base_state = dict(theta=dict(m=0.0, v=0.01), slots=1, steps=[mk("pending"), dict(mk("pending"), id="s2")])
+    (lo0, mid0, hi0), _ = est.simulate(base_state, 0.0, draws=400)
+    (lo1, mid1, hi1), _ = est.simulate(dict(base_state, task_width=tw), 0.0, draws=400)
+    half_state = dict(base_state, task_width=tw, steps=[dict(mk("done")), dict(mk("pending"), id="s2")])
+    (lo2, mid2, hi2), _ = est.simulate(half_state, 0.0, draws=400)
+    check("任务级宽度：开工放宽到经验宽度，点估计不变",
+          mid1 == mid0 and lo1 <= mid0 * math.exp(tw[0]) + 1e-6 and hi1 >= mid0 * math.exp(tw[1]) - 1e-6, f"{lo0:.0f}-{hi0:.0f} → {lo1:.0f}-{hi1:.0f}")
+    check("任务级宽度：完成一半后放宽幅度随剩余占比收窄",
+          math.log(hi2 / mid2) < math.log(hi1 / mid1) and math.log(mid2 / lo2) < math.log(mid1 / lo1), f"{lo2:.0f}-{hi2:.0f}")
     check("类型：自由写法归类", est.norm_type("runtime-check") == "verify" and est.norm_type("code-investigation") == "research"
           and est.norm_type("backend_seed") == "implement" and est.norm_type("handoff") == "docs" and est.norm_type("调研") == "research")
     check("类型：受控词表原样、长串未知归 other", est.norm_type("deliver") == "deliver" and est.norm_type("proto-data-copy-teachers-x") == "other")
@@ -163,6 +180,10 @@ def main() -> int:
         noisy_tasks = [dict(resid_k=3, resid_mean=0.1), dict(resid_k=3, resid_mean=-0.1), dict(resid_k=3, resid_mean=0.05),
                        dict(resid_k=2, resid_mean=-4.2)]
         check("τ² 过滤 |resid_mean|>1.5 的微步污染任务", est.tau2_from(noisy_tasks, 0.6) < 0.25)
+        # 10 空 session/task 在入口即拒绝，不写入损坏历史行
+        rc_empty, emp_out = run(["plan", "--session", "   ", "--task", "t", "--model", "claude",
+                                 "--steps", '[{"name":"检查","type":"verify","base_min":1}]'], st, T0 + 9.6e6)
+        check("空 session 在入口即拒绝", rc_empty == 2 and "session" in emp_out.get("error", ""), str(emp_out))
     print(f"\n{len(FAILS)} FAILED: {FAILS}" if FAILS else "\nALL PASS")
     return 1 if FAILS else 0
 

@@ -211,10 +211,10 @@ def main():
         check("无变化 + 冷却期内：不报", est.decide_report(st, now_, 1140.0, "status")[0] is False)
         check("尾部 <2 分钟：不报", est.decide_report(dict(st, last_report=dict(t=now_ - 600, rem=300.0)), now_, 90.0, "status")[0] is False)
         check("block 事件：总是报", est.decide_report(st, now_, 1140.0, "block")[0] is True)
-        # 16 TZ 完全未声明且系统为 UTC：不报绝对时刻
+        # 16 TZ 完全未声明且系统为 UTC：不报绝对时刻（TZ="" 让 libc 按 UTC 运行，同时不算显式声明，不依赖本机时区）
         rc, out, _ = run(["plan", "--session", "c", "--task", "Z3", "--model", "A/high",
                           "--steps", '[{"name":"甲","type":"impl","d":"D3","base_min":30}]'], tmp, T0,
-                         env_extra={"TZ": None, "COMPLETION_PROGRESS_TZ": None})
+                         env_extra={"TZ": "", "COMPLETION_PROGRESS_TZ": None})
         check("TZ 不明：只报时长不报时刻", not re.search(r"\d\d:\d\d", out["line"]), out["line"][-40:])
         # 17 默认输出瘦身（不加 --verbose）
         p = subprocess.run([PY, str(HERE / "estimate.py"), "status", "--session", "c", "--task", "Z3",

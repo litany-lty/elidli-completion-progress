@@ -45,7 +45,8 @@ def main() -> int:
                       "bytes": p.stat().st_size})
     manifest = {"name": "completion-progress", "version": version, "files": files}
     (ROOT / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    print(f"manifest.json: {len(files)} 项，version={version}")
+    (ROOT / "SHA256SUMS").write_text("".join(f"{f['sha256']}  {f['path']}\n" for f in files), encoding="utf-8")
+    print(f"manifest.json + SHA256SUMS: {len(files)} 项，version={version}")
     return 0
 
 

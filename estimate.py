@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-VERSION = "3.1.0"
+VERSION = "3.1.1"
 # 3.1：类型/型号归一后列数从数百降到几十，读 1 MiB / 4000 行仍在 0.3 秒内（v3.0 的 256 KiB 五天即触顶）
 MAX_BYTES, MAX_LINES = 1024 * 1024, 4000
 LEVELS = ("D1", "D2", "D3", "D4", "D5")
@@ -66,6 +66,7 @@ IDLE_MIN_SEC = 1800                  # 疑似把空闲算进去：> 30 分钟且
 STALE_SEC, GC_SEC = 24 * 3600, 30 * 86400
 EVIDENCE_MAX = 40                    # 共享历史只存位置引用；全文只留在任务状态文件
 SHADOW_MIN_POOL, SHADOW_FAMILY_POOL, SHADOW_WINDOW = 20, 30, 300
+WIDE_RATIO = 4.0                     # 区间上限 > 4× 下限才改写“至少”：任务级校准后的 60% 区间典型约 3.4×，3× 会让开工预计几乎全变成“至少”
 
 
 class ContractError(ValueError):
@@ -657,6 +658,22 @@ def calib_width(steps, window: int = 200):
     return c[int(0.2 * len(c))], c[min(len(c) - 1, int(0.8 * len(c)))]
 
 
+def calib_task_width(tasks, window: int = 200):
+    """任务级经验宽度：最近 window 个已交付任务的开工预测对数残差，去中位数后的 P20/P80（不足 30 个返回 None）。
+
+    步骤级区间各自校准过，但任务总量还包含范围变化、步骤间空档和步骤间相关，蒙特卡洛按独立相加会偏窄
+    （真实数据开工区间覆盖约 32%）；用同样的 split-conformal 只补宽度，不改点估计。
+    """
+    rows = sorted((t for t in tasks if t.get("status") != "abandoned" and t.get("pred_sec") and t.get("actual_sec")),
+                  key=lambda t: t.get("completed_at", 0.0))[-window:]
+    if len(rows) < 30:
+        return None
+    rs = [math.log(t["actual_sec"] / t["pred_sec"]) for t in rows]
+    med = statistics.median(rs)
+    c = sorted(x - med for x in rs)
+    return c[int(0.2 * len(c))], c[min(len(c) - 1, int(0.8 * len(c)))]
+
+
 def apply_calib(fc: dict, width, tau2: float) -> dict:
     """把 v3 的参数化区间换成经验宽度；外推步骤保留更宽者（范围外更不确定）。
     sd_mc 保留融合 base 后的后验步内标准差上限，避免历史粗粒度残差把已给 base_min 的步骤全部顶成 >3×（“至少 N 分钟”）。
@@ -801,7 +818,24 @@ def simulate(state: dict, now: float, draws: int = MC_DRAWS):
         totals.append(max(finish.values()) if finish else 0.0)
     totals.sort()
     q = lambda p: totals[min(len(totals) - 1, int(p * len(totals)))]
-    return (q(.2), q(.5), q(.8)), per_step
+    lo, mid, hi = q(.2), q(.5), q(.8)
+    tw = state.get("task_width")
+    if tw and mid > 0:
+        # 任务级经验宽度按剩余工作占比收窄：开工时取满宽度，越接近完成越接近步骤级区间
+        total = left = 0.0
+        for st in steps:
+            if st.get("ln") is None:
+                continue
+            p = st.get("pred_sec") or 0.0
+            total += p
+            if st["status"] == "pending":
+                left += p
+            elif st["status"] == "running":
+                done_frac = min(1.0, (st.get("units") or 0.0) / st["q"]) if st["q"] > 1 else 0.0
+                left += p * (1.0 - done_frac)
+        share = left / total if total > 0 else 0.0
+        lo, hi = min(lo, mid * math.exp(share * tw[0])), max(hi, mid * math.exp(share * tw[1]))
+    return (lo, mid, hi), per_step
 
 
 def progress_percent(state: dict) -> int | None:
@@ -912,7 +946,7 @@ def remaining_text(state: dict, now: float, totals, with_tz: bool, narrow_after:
     unit = state["unit_min"]
     if hi < 60:
         return "不到 1 分钟"
-    if hi > 3 * lo and lo >= 60:
+    if hi > WIDE_RATIO * lo and lo >= 60:
         s = f"至少 {fmt_dur(lo, unit)}"
         return s + (f"，完成「{narrow_after}」后收窄" if narrow_after else "")
     s = fmt_range(lo, hi, unit)
@@ -977,7 +1011,7 @@ def remaining_text_en(state: dict, now: float, totals, with_tz: bool, narrow_aft
     unit = state["unit_min"]
     if hi < 60:
         return "under 1 min"
-    if hi > 3 * lo and lo >= 60:
+    if hi > WIDE_RATIO * lo and lo >= 60:
         s = f"at least {fmt_dur_en(lo, unit)}"
         return s + (f", narrowing after {narrow_after}" if narrow_after else "")
     s = fmt_range_en(lo, hi, unit)
@@ -1225,7 +1259,8 @@ def cmd_plan(a) -> dict:
                  created_at=previous["created_at"] if previous else now, scope_v=(previous["scope_v"] + 1) if previous else 1,
                  coef_id=model.coef_id, kappa=kappa, s2=model.s2, nu=model.nu, tau2=tau2, base=bstats, steps=steps, theta=theta,
                  plan_history=(previous["plan_history"] if previous else []), last_report=previous.get("last_report") if previous else None,
-                 last_event_at=now, blocked=None, blocked_at=None, paused_total=(previous or {}).get("paused_total", 0.0))
+                 last_event_at=now, blocked=None, blocked_at=None, paused_total=(previous or {}).get("paused_total", 0.0),
+                 task_width=calib_task_width(hist_tasks))
     # 首步自动开始（串行）；并行用 --start
     start_ids = [x for x in (a.start or "").split(",") if x]
     if not start_ids and not any(st["status"] == "running" for st in steps):
@@ -1733,9 +1768,19 @@ def cmd_audit(a) -> dict:
     if paired:
         out["shadow"] = dict(n=len(paired), v3=_score(paired, "pred_sec", "range_sec"), v4=_score(paired, "pred_v4", "range_v4"),
                              gate="v4 log_mae ≤ v3−0.05、|bias| ≤ 0.10、coverage 0.50–0.70，且 n ≥ 100 才切换")
-    done_tasks = [t for t in tasks if t.get("status") != "abandoned" and t.get("pred_sec") and t.get("range_sec")]
+    done_tasks = sorted((t for t in tasks if t.get("status") != "abandoned" and t.get("pred_sec") and t.get("range_sec")),
+                        key=lambda t: t.get("completed_at", 0.0))
     if done_tasks:
-        out["task_forecasts"] = _score(done_tasks, "pred_sec", "range_sec")
+        tf = _score(done_tasks, "pred_sec", "range_sec")
+        cal_rows = []
+        for i, t in enumerate(done_tasks):
+            tw = calib_task_width(done_tasks[max(0, i - 200):i])
+            if tw:
+                cal_rows.append(dict(t, cal_range=[min(t["range_sec"][0], t["pred_sec"] * math.exp(tw[0])),
+                                                   max(t["range_sec"][1], t["pred_sec"] * math.exp(tw[1]))]))
+        if cal_rows:
+            tf["cal_coverage"] = _score(cal_rows, "pred_sec", "cal_range")["coverage"]
+        out["task_forecasts"] = tf
     print(json.dumps(out, ensure_ascii=False, indent=None if a.compact else 1))
     return out
 
@@ -1896,6 +1941,8 @@ def main(argv=None) -> int:
     try:
         resolve_lang(getattr(a, "lang", None))
         resolve_tz(getattr(a, "tz", None))
+        if hasattr(a, "session"):
+            a.session, a.task = text(a.session, "session").strip(), text(a.task, "task").strip()
         out = a.fn(a)
     except ContractError as exc:
         msg = dict(ok=False, error=str(exc), hint="先跑 plan 建立任务；字段错误见 reference.md §2")

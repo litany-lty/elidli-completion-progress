@@ -38,7 +38,7 @@
    - 基于数百步真实开发任务的回测发现，不同模型家族对自身耗时的估计存在显著且稳定的系统性偏差（例如部分模型实际耗时约为自估的 `0.5x`，而另一些模型约为 `1.6x–2.2x`）。
    - 脚本自动将模型名称归一到模型族（`claude`、`gpt-6.1`、`gpt-6`、`gemini`、`minimax`、`deepseek`、`qwen` 等），并通过 **Huber 稳健岭回归** 结合按类型校准的开工自估（`base_min`），自动纠偏。
 2. **经验分位区间（Split-Conformal），拒绝虚假精确**：
-   - 展示给用户的预计时间是 `P20–P80`（60% 预测区间），宽度直接取自本机最近 200 条已发出预测的真实样本外残差分布；当不确定性过高（上限 > 下限 3 倍）时，自动改写为“还剩至少 N 分钟”，绝不强行给出误导性的窄区间。
+   - 展示给用户的预计时间是 `P20–P80`（60% 预测区间），宽度直接取自本机最近 200 条已发出预测的真实样本外残差分布，任务总区间再按最近 200 个已交付任务的真实误差补宽；当不确定性过高（上限 > 下限 4 倍）时，自动改写为“还剩至少 N 分钟”，绝不强行给出误导性的窄区间。
 3. **执行中三路动态修正**：
    - **已完成步偏差传递（$\theta_{\text{task}}$）**：前两步比预期慢了 1.5 倍？脚本会通过经验贝叶斯自动上调本任务剩余步骤的耗时预计。
    - **批量任务实测速率混合**：处理 `15/40` 个文件时，自动按已完成数量将“实测单件速率”与“先验速率”在对数空间按 `1:k` 融合。
@@ -64,7 +64,7 @@
 将本仓库克隆或放置到固定目录（建议放在 `~/Documents/completion-progress` 或 `~/.local/share/completion-progress`，切勿放在 `/tmp` 等会被系统清理的目录）：
 
 ```bash
-git clone https://github.com/litany-lty/completion-progress.git ~/Documents/completion-progress
+git clone https://github.com/litany-lty/elidli-completion-progress.git ~/Documents/completion-progress
 cd ~/Documents/completion-progress
 
 # 1. 查看本机已安装哪些支持的 AI Agent
@@ -168,8 +168,9 @@ python3 estimate.py abandon --session codex-01a1 --task auth-refactor
 ### ⑥ 用“搭车执行”省工具调用
 - Agent 可以在执行实质测试或构建命令的同一条 Shell 中顺带更新进度，既不增加额外的工具调用轮次，也不改变主命令的退出码：
   ```bash
-  pytest tests/ -q; rc=$?; python3 /path/to/estimate.py progress --session S --task T --done s3 >/tmp/cp.json 2>/dev/null; exit $rc
+  pytest tests/ -q; rc=$?; python3 /path/to/estimate.py progress --session S --task T --done s3 2>/dev/null; exit $rc
   ```
+- stdout 不要重定向：返回的 `line` 仍需在下一轮消息里贴给用户（三必报），只是省掉一次单独的工具调用。
 
 ### ⑦ 定期运行 `audit` 查看本机校准体检
 - 当累计样本达到 **20 条**以上时，运行一次校准审计：
