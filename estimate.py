@@ -56,10 +56,10 @@ _CAT_RULES = (
 # 型号族：同一模型的各种写法（大小写、宿主前缀、长句）归到一族；识别不了的占位写法归 unknown。
 _FAMILY_RULES = (
     ("gpt-6.1", r"gpt[-_ ]?6\.1"), ("gpt-6", r"gpt[-_ ]?6"), ("gpt-5", r"gpt[-_ ]?5"),
-    ("claude", r"claude|opus|sonnet|haiku"), ("gemini", r"gemini"), ("minimax", r"minimax"),
+    ("claude", r"claude|opus|sonnet|haiku"), ("gemini", r"gemini|carbon|argon"), ("minimax", r"minimax"),
     ("deepseek", r"deepseek"), ("qwen", r"qwen"), ("glm", r"glm"), ("kimi", r"kimi"),
 )
-_PLACEHOLDER = r"current|root|session|当前|默认|主控|协调|unknown|config|配置|codex|未另行|^$"
+_PLACEHOLDER = r"current|root|session|当前|默认|主控|协调|unknown|config|配置|codex|未另行|orchestrator|coordinator|agent|assistant|^$"
 CAUSES = ("env", "bug", "scope", "wait", "rework", "unclear", "none")
 MICRO_SEC = 30                       # 短于此的自动计时多为连续 --done 摊出的伪迹
 IDLE_MIN_SEC = 1800                  # 疑似把空闲算进去：> 30 分钟且 > 3× 区间上限（或 5× 点估计）

@@ -64,6 +64,10 @@ def main() -> int:
           est.norm_model("current-root;gpt-6.1-sol/xhigh") == "gpt-6.1" and est.norm_model("当前会话/未另行查询") == "unknown"
           and est.norm_model("Codex/session-config") == "unknown" and est.norm_model("Gemini 4 Argon/High") == "gemini")
     check("型号族：未知但明确的写法保留首段", est.norm_model("A/high") == "a")
+    check("型号族：Carbon 归 gemini，编排角色名不当型号",
+          est.norm_model("orchestrator-carbon") == "gemini" and est.norm_model("Gemini 4 Carbon (High)") == "gemini"
+          and est.norm_model("orchestrator/high") == "unknown" and est.norm_model("coordinator") == "unknown"
+          and est.norm_model("subagent-flash") == "unknown")
     check("类型：自由写法归类", est.norm_type("runtime-check") == "verify" and est.norm_type("code-investigation") == "research"
           and est.norm_type("backend_seed") == "implement" and est.norm_type("handoff") == "docs" and est.norm_type("调研") == "research")
     check("类型：受控词表原样、长串未知归 other", est.norm_type("deliver") == "deliver" and est.norm_type("proto-data-copy-teachers-x") == "other")

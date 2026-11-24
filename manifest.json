@@ -41,8 +41,8 @@
   {
    "path": "SKILL.md",
    "role": "runtime",
-   "sha256": "bc201a33db92156eddbecc42bca47dc460a5250759f684a2ecaf43c25fa042d3",
-   "bytes": 5115
+   "sha256": "31b040afee9caef53aec76d6fefa2a292039230f143d4d25dc0e562775d62b86",
+   "bytes": 5547
   },
   {
    "path": "env.sh",
@@ -53,8 +53,8 @@
   {
    "path": "estimate.py",
    "role": "runtime",
-   "sha256": "4ac3316dce89e5be59599bc71bccfaffe836dc6600d01f72fba9e54ab3dd30f7",
-   "bytes": 94621
+   "sha256": "0c5db128cb8048c49ffd5f2212a53ceeeb081f93a5e9537b6883229d33dbc16f",
+   "bytes": 94675
   },
   {
    "path": "install.py",
@@ -107,8 +107,8 @@
   {
    "path": "tests/test_v31.py",
    "role": "test",
-   "sha256": "9d08601074216420a53709458a33f3e1553c146a76569e9828ed6eca7050961e",
-   "bytes": 12516
+   "sha256": "f313d50a081d860faf3fd23a79bd574ee6bd26ea1a5edf17b94818cbce1c4bd2",
+   "bytes": 12877
   }
  ]
 }
